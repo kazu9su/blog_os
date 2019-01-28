@@ -6,7 +6,7 @@
 
 {% block main %}
 {% set posts_section = get_section(path = "second-edition/posts/_index.md") %}
-{% set posts = posts_section.pages | reverse %}
+{% set posts = posts_section.pages %}
 
 <div class="front-page-introduction">
     <p>
@@ -38,30 +38,47 @@
 <div class="posts exceptions">
     {{ macros::post_link(page=posts.5) }}
     {{ macros::post_link(page=posts.6) }}
+    {{ macros::post_link(page=posts.7) }}
+</div>
+
+<div id="memory-management" class="post-category memory-management">Memory Management</div>
+<div class="posts memory-management">
+    {{ macros::post_link(page=posts.8) }}
+    {{ macros::post_link(page=posts.9) }}
 </div>
 
 <div class="posts subscribe">
     <h2 class="post-title">Subscribe</h2>
-    Receive notifications about new posts and other major changes.
-    <form
-    action="https://buttondown.email/api/emails/embed-subscribe/phil-opp"
-    method="post"
-    target="popupwindow"
-    onsubmit="window.open('https://buttondown.email/phil-opp', 'popupwindow')"
-    class="embeddable-buttondown-form subscribe"
-    >
-    <div class="subscribe-fields">
-        <input type="email" name="email" id="bd-email" placeholder="Enter your email">
-        <input type="hidden" value="1" name="embed"/>
-        <input type="submit" value="Subscribe" />
-    </div>
-    </form>
+    <p>Receive notifications about new posts and other major changes! You can either:</p>
+
+    <p><ul>
+        <li>Subscribe to our <a href="/rss.xml">RSS/Atom Feed</a>,</li>
+        <li>Subscribe to <a href="https://github.com/phil-opp/blog_os/issues/479">this GitHub issue</a>, or</li>
+        <li>Subscribe to our <a href="https://tinyletter.com/phil-opp/">email newsletter</a>.</li>
+    </ul></p>
 </div>
 
 <div class="posts first-edition">
     <h2 class="post-title">First Edition</h2>
     You are viewing the second edition of “Writing an OS in Rust”, which is still in progress. The <a href="{{ get_url(path = "/first-edition") }}">first edition</a> has more content, but is no longer updated. We try our best to incorporate the missing content soon.
 </div>
+
+<div class="posts support">
+    <h2 class="post-title">Support Me</h2>
+    <p>In case you would like to support me, you can do so on <a href="https://liberapay.com/phil-opp/">Liberapay</a>, <a href="https://donorbox.org/phil-opp">Donorbox</a>, or <a href="https://www.patreon.com/phil_opp">Patreon</a>. Thanks!</p>
+</div>
+
+<hr>
+{% set extra = get_section(path = "second-edition/extra/_index.md") %}
+<h1>{{ extra.title }}</h1>
+<ul>
+    {% for subsection in extra.subsections %}
+        <li><a href="/{{ subsection.path | safe }}">{{ subsection.title }}</a></li>
+    {% endfor %}
+    {% for page in extra.pages %}
+        <li><a href="/{{ page.path | safe }}">{{ page.title }}</a></li>
+    {% endfor %}
+</ul>
 
 <aside id="recent-updates">
     <h2>Recent Updates</h2>

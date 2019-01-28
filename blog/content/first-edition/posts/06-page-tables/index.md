@@ -1,6 +1,6 @@
 +++
 title = "Page Tables"
-order = 6
+weight = 6
 path = "page-tables"
 date  = 2015-12-09
 template = "first-edition/page.html"
@@ -10,9 +10,9 @@ In this post we will create a paging module, which allows us to access and modif
 
 <!-- more -->
 
-You can find the source code and this post itself on [Github][source repository]. Please file an issue there if you have any problems or improvement suggestions. There is also a comment section at the end of this page. Note that this post requires a current Rust nightly.
+You can find the source code and this post itself on [GitHub][source repository]. Please file an issue there if you have any problems or improvement suggestions. There is also a comment section at the end of this page. Note that this post requires a current Rust nightly.
 
-[source repository]: https://github.com/phil-opp/blog_os/tree/post_6
+[source repository]: https://github.com/phil-opp/blog_os/tree/first_edition_post_6
 
 ## Paging
 _Paging_ is a memory management scheme that separates virtual and physical memory. The address space is split into equal sized _pages_ and _page tables_ specify which virtual page points to which physical frame. For an extensive paging introduction take a look at the paging chapter ([PDF][paging chapter]) of the [Three Easy Pieces] OS book.

@@ -1,6 +1,6 @@
 +++
 title = "CPU Exceptions"
-order = 6
+weight = 6
 path = "cpu-exceptions"
 date  = 2018-06-17
 template = "second-edition/page.html"
@@ -12,10 +12,11 @@ CPU exceptions occur in various erroneous situations, for example when accessing
 
 <!-- more -->
 
-This blog is openly developed on [Github]. If you have any problems or questions, please open an issue there. You can also leave comments [at the bottom].
+This blog is openly developed on [GitHub]. If you have any problems or questions, please open an issue there. You can also leave comments [at the bottom]. The complete source code for this post can be found [here][post branch].
 
-[Github]: https://github.com/phil-opp/blog_os
+[GitHub]: https://github.com/phil-opp/blog_os
 [at the bottom]: #comments
+[post branch]: https://github.com/phil-opp/blog_os/tree/post-06
 
 ## Overview
 An exception signals that something is wrong with the current instruction. For example, the CPU issues an exception if the current instruction tries to divide by 0. When an exception occurs, the CPU interrupts its current work and immediately calls a specific exception handler function, depending on the exception type.
@@ -24,7 +25,7 @@ On x86 there are about 20 different CPU exception types. The most important are:
 
 - **Page Fault**: A page fault occurs on illegal memory accesses. For example, if the current instruction tries to read from an unmapped page or tries to write to a read-only page.
 - **Invalid Opcode**: This exception occurs when the current instruction is invalid, for example when we try to use newer [SSE instructions] on an old CPU that does not support them.
-- **General Protection Fault**: This is the exception with the broadest range of causes. It occurs on various kinds of access violations such as trying to executing a privileged instruction in user level code or writing reserved fields in configuration registers.
+- **General Protection Fault**: This is the exception with the broadest range of causes. It occurs on various kinds of access violations such as trying to execute a privileged instruction in user level code or writing reserved fields in configuration registers.
 - **Double Fault**: When an exception occurs, the CPU tries to call the corresponding handler function. If another exception occurs _while calling the exception handler_, the CPU raises a double fault exception. This exception also occurs when there is no handler function registered for an exception.
 - **Triple Fault**: If an exception occurs while the CPU tries to call the double fault handler function, it issues a fatal _triple fault_. We can't catch or handle a triple fault. Most processors react by resetting themselves and rebooting the operating system.
 
@@ -134,7 +135,7 @@ However, there is a major difference between exceptions and function calls: A fu
 [Calling conventions] specify the details of a function call. For example, they specify where function parameters are placed (e.g. in registers or on the stack) and how results are returned. On x86_64 Linux, the following rules apply for C functions (specified in the [System V ABI]):
 
 [Calling conventions]: https://en.wikipedia.org/wiki/Calling_convention
-[System V ABI]: http://refspecs.linuxbase.org/elf/x86-64-abi-0.99.pdf
+[System V ABI]: http://refspecs.linuxbase.org/elf/x86_64-abi-0.99.pdf
 
 - the first six integer arguments are passed in registers `rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`
 - additional arguments are passed on the stack
@@ -190,6 +191,12 @@ In the `x86_64` crate, the exception stack frame is represented by the [`Excepti
 
 [`ExceptionStackFrame`]: https://docs.rs/x86_64/0.2.8/x86_64/structures/idt/struct.ExceptionStackFrame.html
 
+Note that there is currently [a bug in LLVM] that leads to wrong error code arguments. The cause of the issue is already known and a solution is [being worked on].
+
+[a bug in LLVM]: https://github.com/rust-lang/rust/issues/57270
+[being worked on]: https://reviews.llvm.org/D56275
+
+
 ### Behind the Scenes
 The `x86-interrupt` calling convention is a powerful abstraction that hides almost all of the messy details of the exception handling process. However, sometimes it's useful to know what's happening behind the curtain. Here is a short overview of the things that the `x86-interrupt` calling convention takes care of:
 
@@ -204,12 +211,15 @@ If you are interested in more details: We also have a series of posts that expla
 [too-much-magic]: #too-much-magic
 
 ## Implementation
-Now that we've understood the theory, it's time to handle CPU exceptions in our kernel. We start by creating an `init_idt` function that creates a new `InterruptDescriptorTable`:
+Now that we've understood the theory, it's time to handle CPU exceptions in our kernel. We'll start by creating a new interrupts module in `src/interrupts.rs`, that first creates an `init_idt` function that creates a new `InterruptDescriptorTable`:
 
 ``` rust
-// in src/main.rs
+// in src/lib.rs
 
-extern crate x86_64;
+pub mod interrupts;
+
+// in src/interrupts.rs
+
 use x86_64::structures::idt::InterruptDescriptorTable;
 
 pub fn init_idt() {
@@ -217,7 +227,7 @@ pub fn init_idt() {
 }
 ```
 
-Now we can add handler functions. We start by adding a handler for the [breakpoint exception]. The breakpoint exception is the perfect exception to test exception handling. Its only purpose is to temporary pause a program when the breakpoint instruction `int3` is executed.
+Now we can add handler functions. We start by adding a handler for the [breakpoint exception]. The breakpoint exception is the perfect exception to test exception handling. Its only purpose is to temporarily pause a program when the breakpoint instruction `int3` is executed.
 
 [breakpoint exception]: http://wiki.osdev.org/Exceptions#Breakpoint
 
@@ -228,9 +238,10 @@ The breakpoint exception is commonly used in debuggers: When the user sets a bre
 For our use case, we don't need to overwrite any instructions. Instead, we just want to print a message when the breakpoint instruction is executed and then continue the program. So let's create a simple `breakpoint_handler` function and add it to our IDT:
 
 ```rust
-/// in src/main.rs
+// in src/interrupts.rs
 
 use x86_64::structures::idt::{InterruptDescriptorTable, ExceptionStackFrame};
+use crate::println;
 
 pub fn init_idt() {
     let mut idt = InterruptDescriptorTable::new();
@@ -260,7 +271,7 @@ error[E0658]: x86-interrupt ABI is experimental and subject to change (see issue
    = help: add #![feature(abi_x86_interrupt)] to the crate attributes to enable
 ```
 
-This error occurs because the `x86-interrupt` calling convention is still unstable. To use it anyway, we have to explicitly enable it by adding `#![feature(abi_x86_interrupt)]` on the top of our `main.rs`.
+This error occurs because the `x86-interrupt` calling convention is still unstable. To use it anyway, we have to explicitly enable it by adding `#![feature(abi_x86_interrupt)]` on the top of our `lib.rs`.
 
 ### Loading the IDT
 In order that the CPU uses our new interrupt descriptor table, we need to load it using the [`lidt`] instruction. The `InterruptDescriptorTable` struct of the `x86_64` provides a [`load`][InterruptDescriptorTable::load] method function for that. Let's try to use it:
@@ -269,7 +280,7 @@ In order that the CPU uses our new interrupt descriptor table, we need to load i
 [InterruptDescriptorTable::load]: https://docs.rs/x86_64/0.2.8/x86_64/structures/idt/struct.InterruptDescriptorTable.html#method.load
 
 ```rust
-// in src/main.rs
+// in src/interrupts.rs
 
 pub fn init_idt() {
     let mut idt = InterruptDescriptorTable::new();
@@ -317,7 +328,7 @@ However, there is a problem: Statics are immutable, so we can't modify the break
 [`static mut`]: https://doc.rust-lang.org/book/second-edition/ch19-01-unsafe-rust.html#accessing-or-modifying-a-mutable-static-variable
 
 ```rust
-static mut IDT: Option<InterruptDescriptorTable> = InterruptDescriptorTable::new();
+static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
 pub fn init_idt() {
     unsafe {
@@ -339,10 +350,9 @@ We already imported the `lazy_static` crate when we [created an abstraction for 
 [vga text buffer lazy static]: ./second-edition/posts/03-vga-text-buffer/index.md#lazy-statics
 
 ```rust
-// in src/main.rs
+// in src/interrupts.rs
 
-#[macro_use]
-extern crate lazy_static;
+use lazy_static::lazy_static;
 
 lazy_static! {
     static ref IDT: InterruptDescriptorTable = {
@@ -370,7 +380,7 @@ Now we should be able to handle breakpoint exceptions! Let's try it in our `_sta
 pub extern "C" fn _start() -> ! {
     println!("Hello World{}", "!");
 
-    init_idt();
+    blog_os::interrupts::init_idt();
 
     // invoke a breakpoint exception
     x86_64::instructions::int3();
@@ -395,51 +405,72 @@ Let's create an integration test that ensures that the above continues to work. 
 ```rust
 // in src/bin/test-exception-breakpoint.rs
 
-use blog_os::exit_qemu;
-use core::sync::atomic::{AtomicUsize, Ordering};
+#![no_std]
+#![cfg_attr(not(test), no_main)]
+#![cfg_attr(test, allow(dead_code, unused_macros, unused_imports))]
 
-static BREAKPOINT_HANDLER_CALLED: AtomicUsize = AtomicUsize::new(0);
+use core::panic::PanicInfo;
+use blog_os::{exit_qemu, serial_println};
 
 #[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    init_idt();
+    blog_os::interrupts::init_idt();
 
-    // invoke a breakpoint exception
     x86_64::instructions::int3();
 
-    match BREAKPOINT_HANDLER_CALLED.load(Ordering::SeqCst) {
-        1 => serial_println!("ok"),
-        0 => {
-            serial_println!("failed");
-            serial_println!("Breakpoint handler was not called.");
-        }
-        other => {
-            serial_println!("failed");
-            serial_println!("Breakpoint handler was called {} times", other);
-        }
-    }
+    serial_println!("ok");
 
     unsafe { exit_qemu(); }
     loop {}
 }
 
-extern "x86-interrupt" fn breakpoint_handler(_: &mut ExceptionStackFrame) {
-    BREAKPOINT_HANDLER_CALLED.fetch_add(1, Ordering::SeqCst);
-}
 
-// […]
+#[cfg(not(test))]
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    serial_println!("failed");
+
+    serial_println!("{}", info);
+
+    unsafe { exit_qemu(); }
+    loop {}
+}
 ```
 
-For space reasons we don't show the full content here. You can find the full file [on Github](https://github.com/phil-opp/blog_os/blob/master/src/bin/test-exception-breakpoint.rs).
+It is similar to our `main.rs`, but instead of printing "It did not crash!" to the VGA buffer, it prints "ok" to the serial output and calls `exit_qemu`. This allows the `bootimage` tool to detect that our code successfully continued after invoking the `int3` instruction. If our `panic_handler` is called, we instead print `failed` to signalize the failure to `bootimage`.
 
-It is basically a copy of our `main.rs` with some modifications to `_start` and `breakpoint_handler`. The most interesting part is the `BREAKPOINT_HANDLER_CALLER` static. It is an [`AtomicUsize`], an integer type that can be safely concurrently modifies because all of its operations are atomic. We increment it when the `breakpoint_handler` is called and verify in our `_start` function that the handler was called exactly once.
+You can try this new test by running `bootimage test`.
 
-[`AtomicUsize`]: https://doc.rust-lang.org/core/sync/atomic/struct.AtomicUsize.html
+### Fixing `cargo test` on Windows
 
-The [`Ordering`] parameter specifies the desired guarantees of the atomic operations. The `SeqCst` ordering means “sequential consistent” and gives the strongest guarantees. It is a good default, because weaker orderings can have undesired effects.
+The `x86-interrupt` calling convention has an annoying problem: There is a bug in LLVM that leads to a "LLVM ERROR: offset is not a multiple of 16" when compiling a function with the `x86-interrupt` calling convention _for a Windows target_. Normally this is no problem, since we only compile for our custom `x86_64-blog_os.json` target. But `cargo test` compiles our crate for the host system, so the error occurs if the host system is Windows.
 
-[`Ordering`]: https://doc.rust-lang.org/core/sync/atomic/enum.Ordering.html
+To fix this problem, we add a conditional compilation attribute, so that the `x86-interrupt` functions are not compiled on Windows systems. We don't have any unit tests that rely on the `interrupts` module, so we can simply skip compilation of the whole module:
+
+```rust
+// in src/interrupts.rs
+
+// LLVM throws an error if a function with the
+// x86-interrupt calling convention is compiled
+// for a Windows system.
+#![cfg(not(windows))]
+```
+
+The bang ("!") after the hash ("#") indicates that this is an [inner attribute] and applies to the module we're in. Without the bang it would only apply to the next item in the file. Note that inner attributes must be right at the beginning of a module.
+
+[inner attribute]: https://doc.rust-lang.org/reference/attributes.html
+
+We could achieve the same effect by using an _outer_ attribute (without a bang) in our `lib.rs`:
+
+```rust
+// in src/lib.rs
+
+#[cfg(not(windows))] // no bang ("!") after the hash ("#")
+pub mod interrupts;
+```
+
+Both variants have the exact same effects, so it comes down to personal preference which one to use. I prefer the inner attribute in this case because it does not clutter our `lib.rs` with a workaround for a LLVM bug, but either way is fine.
 
 ## Too much Magic?
 The `x86-interrupt` calling convention and the [`InterruptDescriptorTable`] type made the exception handling process relatively straightforward and painless. If this was too much magic for you and you like to learn all the gory details of exception handling, we got you covered: Our [“Handling Exceptions with Naked Functions”] series shows how to handle exceptions without the `x86-interrupt` calling convention and also creates its own IDT type. Historically, these posts were the main exception handling posts before the `x86-interrupt` calling convention and the `x86_64` crate existed. Note that these posts are based on the [first edition] of this blog and might be out of date.

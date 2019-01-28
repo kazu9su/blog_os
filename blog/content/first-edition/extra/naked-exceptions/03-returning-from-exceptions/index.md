@@ -1,6 +1,6 @@
 +++
 title = "Returning from Exceptions"
-order = 3
+weight = 3
 path = "returning-from-exceptions"
 date  = 2016-09-21
 template = "first-edition/page.html"
@@ -12,9 +12,9 @@ In this post, we learn how to return from exceptions correctly. In the course of
 
 <!-- more -->
 
-As always, the complete source code is on [Github]. Please file [issues] for any problems, questions, or improvement suggestions. There is also a [gitter chat] and a comment section at the end of this page.
+As always, the complete source code is on [GitHub]. Please file [issues] for any problems, questions, or improvement suggestions. There is also a [gitter chat] and a comment section at the end of this page.
 
-[Github]: https://github.com/phil-opp/blog_os/tree/returning_from_exceptions
+[GitHub]: https://github.com/phil-opp/blog_os/tree/returning_from_exceptions
 [issues]: https://github.com/phil-opp/blog_os/issues
 [gitter chat]: https://gitter.im/phil-opp/blog_os
 
@@ -429,7 +429,7 @@ When we discussed calling conventions above, we assummed that a x86_64 CPU only 
 
 However, modern CPUs also have a set of _special purpose registers_, which can be used to improve performance in several use cases. On x86_64, the most important set of special purpose registers are the _multimedia registers_. These registers are larger than the general purpose registers and can be used to speed up audio/video processing or matrix calculations. For example, we could use them to add two 4-dimensional vectors _in a single CPU instruction_:
 
-![`(1,2,3,4) + (5,6,7,8) = (6,8,10,12)`](http://mathurl.com/jz3nvev.png)
+![`(1,2,3,4) + (5,6,7,8) = (6,8,10,12)`](vector-addition.png)
 
 Such multimedia instructions are called [Single Instruction Multiple Data (SIMD)] instructions, because they simultaneously perform an operation (e.g. addition) on multiple data words. Good compilers are able to transform normal loops into such SIMD code automatically. This process is called [auto-vectorization] and can lead to huge performance improvements.
 

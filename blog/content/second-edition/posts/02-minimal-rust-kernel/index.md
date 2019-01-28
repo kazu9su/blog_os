@@ -1,21 +1,22 @@
 +++
 title = "A Minimal Rust Kernel"
-order = 2
+weight = 2
 path = "minimal-rust-kernel"
 date = 2018-02-10
 template = "second-edition/page.html"
 +++
 
-In this post we create a minimal 64-bit Rust kernel for the x86 architecture. We built upon the [freestanding Rust binary] from the previous post to create a bootable disk image, that prints something to the screen.
+In this post we create a minimal 64-bit Rust kernel for the x86 architecture. We build upon the [freestanding Rust binary] from the previous post to create a bootable disk image, that prints something to the screen.
 
 [freestanding Rust binary]: ./second-edition/posts/01-freestanding-rust-binary/index.md
 
 <!-- more -->
 
-This blog is openly developed on [Github]. If you have any problems or questions, please open an issue there. You can also leave comments [at the bottom].
+This blog is openly developed on [GitHub]. If you have any problems or questions, please open an issue there. You can also leave comments [at the bottom]. The complete source code for this post can be found [here][post branch].
 
-[Github]: https://github.com/phil-opp/blog_os
+[GitHub]: https://github.com/phil-opp/blog_os
 [at the bottom]: #comments
+[post branch]: https://github.com/phil-opp/blog_os/tree/post-02
 
 ## The Boot Process
 When you turn on a computer, it begins executing firmware code that is stored in motherboard [ROM]. This code performs a [power-on self-test], detects available RAM, and pre-initializes the CPU and hardware. Afterwards it looks for a bootable disk and starts booting the operating system kernel.
@@ -44,7 +45,7 @@ The bootloader has to determine the location of the kernel image on the disk and
 [long mode]: https://en.wikipedia.org/wiki/Long_mode
 [memory segmentation]: https://en.wikipedia.org/wiki/X86_memory_segmentation
 
-Writing a bootloader is a bit cumbersome as it requires assembly language and a lot of non insightful steps like “write this magic value to this processor register”. Therefore we don't cover bootloader creation in this post and instead provide a tool named [bootimage] that automatically appends a bootloader to your kernel.
+Writing a bootloader is a bit cumbersome as it requires assembly language and a lot of non insightful steps like “write this magic value to this processor register”. Therefore we don't cover bootloader creation in this post and instead provide a tool named [bootimage] that automatically prepends a bootloader to your kernel.
 
 [bootimage]: https://github.com/rust-osdev/bootimage
 
@@ -57,7 +58,7 @@ To avoid that every operating system implements its own bootloader, which is onl
 [Multiboot]: https://wiki.osdev.org/Multiboot
 [GNU GRUB]: https://en.wikipedia.org/wiki/GNU_GRUB
 
-To make a kernel Multiboot compliant, one just needs to insert a so-called [Multiboot header] at the beginning of the kernel file. This makes it very easy to boot an OS in GRUB. However, GRUB and the the Multiboot standard have some problems too:
+To make a kernel Multiboot compliant, one just needs to insert a so-called [Multiboot header] at the beginning of the kernel file. This makes it very easy to boot an OS in GRUB. However, GRUB and the Multiboot standard have some problems too:
 
 [Multiboot header]: https://www.gnu.org/software/grub/manual/multiboot/multiboot.html#OS-image-format
 
@@ -107,8 +108,9 @@ For our target system, however, we require some special configuration parameters
 }
 ```
 
-Most fields are required by LLVM to generate code for that platform. For example, the `data-layout` field defines the size of various integer, floating point, and pointer types. Then there are fields that Rust uses for conditional compilation, such as `target-pointer-width`. The third kind of fields define how the crate should be built. For example, the `pre-link-args` field specifies arguments passed to the [linker].
+Most fields are required by LLVM to generate code for that platform. For example, the [`data-layout`] field defines the size of various integer, floating point, and pointer types. Then there are fields that Rust uses for conditional compilation, such as `target-pointer-width`. The third kind of fields define how the crate should be built. For example, the `pre-link-args` field specifies arguments passed to the [linker].
 
+[`data-layout`]: https://llvm.org/docs/LangRef.html#data-layout
 [linker]: https://en.wikipedia.org/wiki/Linker_(computing)
 
 We also target `x86_64` systems with our kernel, so our target specification will look very similar to the one above. Let's start by creating a `x86_64-blog_os.json` file (choose any name you like) with the common content:
@@ -199,16 +201,14 @@ Compiling for our new target will use Linux conventions (I'm not quite sure why,
 ```rust
 // src/main.rs
 
-#![feature(panic_implementation)] // required for defining the panic handler
 #![no_std] // don't link the Rust standard library
 #![no_main] // disable all Rust-level entry points
 
 use core::panic::PanicInfo;
 
 /// This function is called on panic.
-#[panic_implementation]
-#[no_mangle]
-pub fn panic(_info: &PanicInfo) -> ! {
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }
 
@@ -239,7 +239,7 @@ It fails! The error tells us that the Rust compiler no longer finds the `core` o
 The problem is that the core library is distributed together with the Rust compiler as a _precompiled_ library. So it is only valid for supported host triples (e.g., `x86_64-unknown-linux-gnu`) but not for our custom target. If we want to compile code for other targets, we need to recompile `core` for these targets first.
 
 #### Cargo xbuild
-That's where [`cargo xbuild`] comes in. It is a wrapper for `cargo build` that automatically cross-compiles the built-in libraries. We can install it by executing:
+That's where [`cargo xbuild`] comes in. It is a wrapper for `cargo build` that automatically cross-compiles `core` and other built-in libraries. We can install it by executing:
 
 [`cargo xbuild`]: https://github.com/rust-osdev/cargo-xbuild
 
@@ -249,19 +249,22 @@ cargo install cargo-xbuild
 
 The command depends on the rust source code, which we can install with `rustup component add rust-src`.
 
-We now can rerun the above command with `xbuild` instead of `build`:
+Now we can rerun the above command with `xbuild` instead of `build`:
 
 ```
 > cargo xbuild --target x86_64-blog_os.json
-   Compiling core v0.0.0 (file:///…/rust/src/libcore)
-    Finished release [optimized] target(s) in 52.75 secs
-   Compiling compiler_builtins v0.1.0 (file:///…/rust/src/libcompiler_builtins)
-    Finished release [optimized] target(s) in 3.92 secs
+   Compiling core v0.0.0 (/…/rust/src/libcore)
+   Compiling compiler_builtins v0.1.5
+   Compiling rustc-std-workspace-core v1.0.0 (/…/rust/src/tools/rustc-std-workspace-core)
+   Compiling alloc v0.0.0 (/tmp/xargo.PB7fj9KZJhAI)
+    Finished release [optimized + debuginfo] target(s) in 45.18s
    Compiling blog_os v0.1.0 (file:///…/blog_os)
     Finished dev [unoptimized + debuginfo] target(s) in 0.29 secs
 ```
 
-It worked! We see that `cargo xbuild` cross-compiled the `core`, `compiler_builtin`, and `alloc` libraries for our new custom target and then continued to compile our `blog_os` crate.
+We see that `cargo xbuild` cross-compiles the `core`, `compiler_builtin`, and `alloc` libraries for our new custom target. Since these libraries use a lot of unstable features internally, this only works with a [nightly Rust compiler]. Afterwards, `cargo xbuild` successfully compiles our `blog_os` crate.
+
+[nightly Rust compiler]: ./second-edition/posts/01-freestanding-rust-binary/index.md#installing-rust-nightly
 
 Now we are able to build our kernel for a bare metal target. However, our `_start` entry point, which will be called by the boot loader, is still empty. So let's output something to screen from it.
 
@@ -296,17 +299,17 @@ pub extern "C" fn _start() -> ! {
 
 First, we cast the integer `0xb8000` into a [raw pointer]. Then we [iterate] over the bytes of the [static] `HELLO` [byte string]. We use the [`enumerate`] method to additionally get a running variable `i`. In the body of the for loop, we use the [`offset`] method to write the string byte and the corresponding color byte (`0xb` is a light cyan).
 
-[iterate]: https://doc.rust-lang.org/book/second-edition/ch13-02-iterators.html
-[static]: https://doc.rust-lang.org/book/first-edition/const-and-static.html#static
+[iterate]: https://doc.rust-lang.org/stable/book/ch13-02-iterators.html
+[static]: https://doc.rust-lang.org/book/ch10-03-lifetime-syntax.html#the-static-lifetime
 [`enumerate`]: https://doc.rust-lang.org/core/iter/trait.Iterator.html#method.enumerate
 [byte string]: https://doc.rust-lang.org/reference/tokens.html#byte-string-literals
-[raw pointer]: https://doc.rust-lang.org/stable/book/second-edition/ch19-01-unsafe-rust.html#dereferencing-a-raw-pointer
+[raw pointer]: https://doc.rust-lang.org/stable/book/ch19-01-unsafe-rust.html#dereferencing-a-raw-pointer
 [`offset`]: https://doc.rust-lang.org/std/primitive.pointer.html#method.offset
 
 Note that there's an [`unsafe`] block around all memory writes. The reason is that the Rust compiler can't prove that the raw pointers we create are valid. They could point anywhere and lead to data corruption. By putting them into an `unsafe` block we're basically telling the compiler that we are absolutely sure that the operations are valid. Note that an `unsafe` block does not turn off Rust's safety checks. It only allows you to do [four additional things].
 
-[`unsafe`]: https://doc.rust-lang.org/stable/book/second-edition/ch19-01-unsafe-rust.html
-[four additional things]: https://doc.rust-lang.org/stable/book/second-edition/ch19-01-unsafe-rust.html#unsafe-superpowers
+[`unsafe`]: https://doc.rust-lang.org/stable/book/ch19-01-unsafe-rust.html
+[four additional things]: https://doc.rust-lang.org/stable/book/ch19-01-unsafe-rust.html#unsafe-superpowers
 
 I want to emphasize that **this is not the way we want to do things in Rust!** It's very easy to mess up when working with raw pointers inside unsafe blocks, for example, we could easily write behind the buffer's end if we're not careful.
 
@@ -319,28 +322,18 @@ Now that we have an executable that does something perceptible, it is time to tu
 
 [section about booting]: #the-boot-process
 
-To add a bootloader to our kernel we add a dependency on the [`bootloader_precompiled`] crate:
+Instead of writing our own bootloader, which is a project on its own, we use the [`bootloader`] crate. This crate implements a basic BIOS bootloader without any C dependencies, just Rust and inline assembly. To use it for booting our kernel, we need to add a dependency on it:
 
-[`bootloader_precompiled`]: https://crates.io/crates/bootloader_precompiled
+[`bootloader`]: https://crates.io/crates/bootloader
 
 ```toml
 # in Cargo.toml
 
 [dependencies]
-bootloader_precompiled = "0.2.0"
+bootloader = "0.3.12"
 ```
 
-```rust
-// in main.rs
-
-extern crate bootloader_precompiled;
-```
-
-This crate is a precompiled version of the [`bootloader`] crate, an experimental bootloader written in Rust and assembly. We use the precompiled version because the bootloader has some linking issues on platforms other than Linux. We try our best to solve these issues and will update the post as soon as it works on all platforms.
-
-[`bootloader`]: https://crates.io/crates/bootloader
-
-Regardless of whether precompiled or not, adding the bootloader as dependency is not enough to actually create a bootable disk image. The problem is that we need to combine the bootloader with the kernel after it has been compiled, but cargo has no support for additional build steps after successful compilation (see [this issue][post-build script] for more information).
+Adding the bootloader as dependency is not enough to actually create a bootable disk image. The problem is that we need to combine the bootloader with the kernel after it has been compiled, but cargo has no support for additional build steps after successful compilation (see [this issue][post-build script] for more information).
 
 [post-build script]: https://github.com/rust-lang/cargo/issues/545
 
@@ -360,9 +353,9 @@ After installing the `bootimage` tool, creating a bootable disk image is as easy
 > bootimage build --target x86_64-blog_os.json
 ```
 
-The tool also recompiles your kernel using `cargo xbuild`, so it will automatically pick up any changes you make.
+You see that the tool recompiles your kernel using `cargo xbuild`, so it will automatically pick up any changes you make. Afterwards it compiles the bootloader, which might take a while. Like all crate dependencies it is only built once and then cached, so subsequent builds will be much faster. Finally, `bootimage` combines the bootloader and your kernel to a bootable disk image.
 
-After executing the command, you should see a file named `bootimage.bin` in your `target/x86_64-blog_os/debug` directory. This file is a bootable disk image. You can boot it in a virtual machine or copy it to an USB drive to boot it on real hardware. (Note that this is not a CD image, which have a different format, so burning it to a CD doesn't work).
+After executing the command, you should see a bootable disk image named `bootimage-blog_os.bin` in your `target/x86_64-blog_os/debug` directory. You can boot it in a virtual machine or copy it to an USB drive to boot it on real hardware. (Note that this is not a CD image, which have a different format, so burning it to a CD doesn't work).
 
 #### How does it work?
 The `bootimage` tool performs the following steps behind the scenes:
@@ -394,7 +387,7 @@ We can now boot the disk image in a virtual machine. To boot it in [QEMU], execu
 [QEMU]: https://www.qemu.org/
 
 ```
-> qemu-system-x86_64 -drive format=raw,file=bootimage.bin
+> qemu-system-x86_64 -drive format=raw,file=bootimage-blog_os.bin
 warning: TCG doesn't support requested feature: CPUID.01H:ECX.vmx [bit 5]
 ```
 
@@ -414,7 +407,7 @@ By default it invokes the exact same QEMU command as above. Additional QEMU opti
 It is also possible to write it to an USB stick and boot it on a real machine:
 
 ```
-> dd if=target/x86_64-blog_os/debug/bootimage.bin of=/dev/sdX && sync
+> dd if=target/x86_64-blog_os/debug/bootimage-blog_os.bin of=/dev/sdX && sync
 ```
 
 Where `sdX` is the device name of your USB stick. **Be careful** to choose the correct device name, because everything on that device is overwritten.

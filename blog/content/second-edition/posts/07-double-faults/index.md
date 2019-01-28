@@ -1,6 +1,6 @@
 +++
 title = "Double Faults"
-order = 7
+weight = 7
 path = "double-fault-exceptions"
 date  = 2018-06-18
 template = "second-edition/page.html"
@@ -10,10 +10,11 @@ This post explores the double fault exception in detail, which occurs when the C
 
 <!-- more -->
 
-This blog is openly developed on [Github]. If you have any problems or questions, please open an issue there. You can also leave comments [at the bottom].
+This blog is openly developed on [GitHub]. If you have any problems or questions, please open an issue there. You can also leave comments [at the bottom]. The complete source code for this post can be found [here][post branch].
 
-[Github]: https://github.com/phil-opp/blog_os
+[GitHub]: https://github.com/phil-opp/blog_os
 [at the bottom]: #comments
+[post branch]: https://github.com/phil-opp/blog_os/tree/post-07
 
 ## What is a Double Fault?
 In simplified terms, a double fault is a special exception that occurs when the CPU fails to invoke an exception handler. For example, it occurs when a page fault is triggered but there is no page fault handler registered in the [Interrupt Descriptor Table][IDT] (IDT). So it's kind of similar to catch-all blocks in programming languages with exceptions, e.g. `catch(...)` in C++ or `catch(Exception e)` in Java or C#.
@@ -26,14 +27,14 @@ A double fault behaves like a normal exception. It has the vector number `8` and
 Let's provoke a double fault by triggering an exception for that we didn't define a handler function:
 
 ```rust
-// in src/lib.rs
+// in src/main.rs
 
 #[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     println!("Hello World{}", "!");
 
-    init_idt();
+    blog_os::interrupts::init_idt();
 
     // trigger a page fault
     unsafe {
@@ -60,7 +61,7 @@ So in order to prevent this triple fault, we need to either provide a handler fu
 A double fault is a normal exception with an error code, so we can specify a handler function similar to our breakpoint handler:
 
 ```rust
-// in src/main.rs
+// in src/interrupts.rs
 
 lazy_static! {
     static ref IDT: InterruptDescriptorTable = {
@@ -127,7 +128,7 @@ First Exception | Second Exception
 [Page Fault]: http://wiki.osdev.org/Exceptions#Page_Fault
 
 
-[AMD64 manual]: http://developer.amd.com/wordpress/media/2012/10/24593_APM_v21.pdf
+[AMD64 manual]: https://www.amd.com/system/files/TechDocs/24593.pdf
 
 So for example a divide-by-zero fault followed by a page fault is fine (the page fault handler is invoked), but a divide-by-zero fault followed by a general-protection fault leads to a double fault.
 
@@ -155,14 +156,14 @@ So the CPU tries to call the _double fault handler_ now. However, on a double fa
 Let's try it ourselves! We can easily provoke a kernel stack overflow by calling a function that recurses endlessly:
 
 ```rust
-// in src/lib.rs
+// in src/main.rs
 
 #[cfg(not(test))]
 #[no_mangle] // don't mangle the name of this function
 pub extern "C" fn _start() -> ! {
     println!("Hello World{}", "!");
 
-    init_idt();
+    blog_os::interrupts::init_idt();
 
     fn stack_overflow() {
         stack_overflow(); // for each recursion, the return address is pushed
@@ -235,6 +236,7 @@ pub mod gdt;
 
 use x86_64::VirtAddr;
 use x86_64::structures::tss::TaskStateSegment;
+use lazy_static::lazy_static;
 
 pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
 
@@ -314,7 +316,7 @@ pub extern "C" fn _start() -> ! {
     println!("Hello World{}", "!");
 
     blog_os::gdt::init();
-    init_idt();
+    blog_os::interrupts::init_idt();
 
     […]
 }
@@ -325,11 +327,11 @@ Now our GDT is loaded, but we still see the boot loop on stack overflow.
 
 ### The final Steps
 
-The problem is that the GDT segments are not yet active becaues the segment and TSS registers still contain the values from the old GDT. We also need to modify the double fault IDT entry so that it uses the new stack.
+The problem is that the GDT segments are not yet active because the segment and TSS registers still contain the values from the old GDT. We also need to modify the double fault IDT entry so that it uses the new stack.
 
 In summary, we need to do the following:
 
-1. **Reload code segment register**: We changed our GDT, so we should reload `cs`, the code segment register. This required since the old segment selector could point a different GDT descriptor now (e.g. a TSS descriptor).
+1. **Reload code segment register**: We changed our GDT, so we should reload `cs`, the code segment register. This is required since the old segment selector could point a different GDT descriptor now (e.g. a TSS descriptor).
 2. **Load the TSS** : We loaded a GDT that contains a TSS selector, but we still need to tell the CPU that it should use that TSS.
 3. **Update the IDT entry**: As soon as our TSS is loaded, the CPU has access to a valid interrupt stack table (IST). Then we can tell the CPU that it should use our new double fault stack by modifying our double fault IDT entry.
 
@@ -380,7 +382,9 @@ We reload the code segment register using [`set_cs`] and to load the TSS using [
 Now that we loaded a valid TSS and interrupt stack table, we can set the stack index for our double fault handler in the IDT:
 
 ```rust
-// in src/main.rs
+// in src/interrupts.rs
+
+use crate::gdt;
 
 lazy_static! {
     static ref IDT: InterruptDescriptorTable = {
@@ -388,7 +392,7 @@ lazy_static! {
         idt.breakpoint.set_handler_fn(breakpoint_handler);
         unsafe {
             idt.double_fault.set_handler_fn(double_fault_handler)
-                .set_stack_index(blog_os::gdt::DOUBLE_FAULT_IST_INDEX); // new
+                .set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX); // new
         }
 
         idt
@@ -414,7 +418,6 @@ In this post we learned what a double fault is and under which conditions it occ
 We also enabled the hardware supported stack switching on double fault exceptions so that it also works on stack overflow. While implementing it, we learned about the task state segment (TSS), the contained interrupt stack table (IST), and the global descriptor table (GDT), which was used for segmentation on older architectures.
 
 ## What's next?
-The next posts will explain how to handle interrupts from external devices such as timers, keyboards, or network controllers. These hardware interrupts are very similar to exceptions, e.g. they are also dispatched through the IDT. However, unlike exceptions, they don't arise directly on the CPU. Instead, an _interrupt controller_ aggregates these interrupts and forwards them to CPU depending on their priority. In the next posts we will explore the two interrupt controller variants on x86: the [Intel 8259] \(“PIC”) and the [APIC]. This will allow us to react to keyboard and mouse input.
+The next post explains how to handle interrupts from external devices such as timers, keyboards, or network controllers. These hardware interrupts are very similar to exceptions, e.g. they are also dispatched through the IDT. However, unlike exceptions, they don't arise directly on the CPU. Instead, an _interrupt controller_ aggregates these interrupts and forwards them to CPU depending on their priority. In the next we will explore the [Intel 8259] \(“PIC”) interrupt controller and learn how to implement keyboard support.
 
 [Intel 8259]: https://en.wikipedia.org/wiki/Intel_8259
-[APIC]: https://en.wikipedia.org/wiki/Advanced_Programmable_Interrupt_Controller

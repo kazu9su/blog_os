@@ -1,6 +1,6 @@
 +++
 title = "Kernel Heap"
-order = 8
+weight = 8
 path = "kernel-heap"
 date  = 2016-04-11
 updated = "2017-11-19"
@@ -15,9 +15,9 @@ In the previous posts we created a [frame allocator] and a [page table module]. 
 
 <!-- more -->
 
-As always, you can find the complete source code on [Github]. Please file [issues] for any problems, questions, or improvement suggestions. There is also a comment section at the end of this page.
+As always, you can find the complete source code on [GitHub]. Please file [issues] for any problems, questions, or improvement suggestions. There is also a comment section at the end of this page.
 
-[Github]: https://github.com/phil-opp/blog_os/tree/post_8
+[GitHub]: https://github.com/phil-opp/blog_os/tree/first_edition_post_8
 [issues]: https://github.com/phil-opp/blog_os/issues
 
 ## Introduction

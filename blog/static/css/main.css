@@ -68,11 +68,11 @@ main img {
 }
 
 .posts.testing {
-  border: 2px solid #0c0;
+  border: 2px solid #0a0;
 }
 
 .posts.memory-management {
-  border: 2px solid #cc0;
+  border: 2px solid #fc0
 }
 
 .posts.exceptions {
@@ -116,6 +116,10 @@ main img {
 
 .post-category.exceptions {
   color: #f33;
+}
+
+.post-footer-support, .post-footer-support > h2 {
+  color: #888;
 }
 
 .PageNavigation {
@@ -239,7 +243,7 @@ a code {
   color: #268bd2;
 }
 
-a.gutenberg-anchor {
+a.zola-anchor {
   opacity: 0;
   position: absolute;
   margin-left: -1.5em;
@@ -249,12 +253,12 @@ a.gutenberg-anchor {
   line-height: 2em;
 }
 
-:hover>a.gutenberg-anchor {
+:hover>a.zola-anchor {
   opacity: 1;
   text-decoration: none;
 }
 
-a.gutenberg-anchor:hover {
+a.zola-anchor:hover {
   text-decoration: none;
 }
 
@@ -294,4 +298,13 @@ form.subscribe input[type=email] {
 form.subscribe input[type=submit] {
   padding: .25rem .5rem;
   cursor: pointer;
+}
+
+/* Asides */
+aside.post_aside {
+  font-style: italic;
+  padding: 0rem 1rem 0rem;
+  margin: .8rem 0;
+  border-left: .1rem solid #e5e5e5;
+  border-right: .1rem solid #e5e5e5;
 }

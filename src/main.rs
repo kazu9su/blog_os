@@ -1,75 +1,39 @@
-#![feature(panic_implementation)] // required for defining the panic handler
-#![feature(abi_x86_interrupt)]
-#![no_std] // don't link the Rust standard library
-#![cfg_attr(not(test), no_main)] // disable all Rust-level entry points
-#![cfg_attr(test, allow(dead_code, unused_macros, unused_imports))]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
+#![cfg_attr(test, allow(unused_imports))]
 
-#[macro_use]
-extern crate blog_os;
-extern crate x86_64;
-#[macro_use]
-extern crate lazy_static;
-
+use blog_os::println;
+use bootloader::{bootinfo::BootInfo, entry_point};
 use core::panic::PanicInfo;
 
-/// This function is the entry point, since the linker looks for a function
-/// named `_start` by default.
+entry_point!(kernel_main);
+
 #[cfg(not(test))]
-#[no_mangle] // don't mangle the name of this function
-pub extern "C" fn _start() -> ! {
+fn kernel_main(boot_info: &'static BootInfo) -> ! {
+    use blog_os::interrupts::PICS;
+    use blog_os::memory::{self, create_example_mapping};
+
     println!("Hello World{}", "!");
 
     blog_os::gdt::init();
-    init_idt();
+    blog_os::interrupts::init_idt();
+    unsafe { PICS.lock().initialize() };
+    x86_64::instructions::interrupts::enable();
 
-    fn stack_overflow() {
-        stack_overflow(); // for each recursion, the return address is pushed
-    }
+    let mut recursive_page_table = unsafe { memory::init(boot_info.p4_table_addr as usize) };
+    let mut frame_allocator = memory::init_frame_allocator(&boot_info.memory_map);
 
-    // trigger a stack overflow
-    stack_overflow();
+    create_example_mapping(&mut recursive_page_table, &mut frame_allocator);
+    unsafe { (0xdeadbeaf900 as *mut u64).write_volatile(0xf021f077f065f04e) };
 
     println!("It did not crash!");
-    loop {}
+    blog_os::hlt_loop();
 }
 
 /// This function is called on panic.
 #[cfg(not(test))]
-#[panic_implementation]
-#[no_mangle]
-pub fn panic(info: &PanicInfo) -> ! {
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
     println!("{}", info);
-    loop {}
-}
-
-use x86_64::structures::idt::{ExceptionStackFrame, InterruptDescriptorTable};
-
-lazy_static! {
-    static ref IDT: InterruptDescriptorTable = {
-        let mut idt = InterruptDescriptorTable::new();
-        idt.breakpoint.set_handler_fn(breakpoint_handler);
-        unsafe {
-            idt.double_fault
-                .set_handler_fn(double_fault_handler)
-                .set_stack_index(blog_os::gdt::DOUBLE_FAULT_IST_INDEX);
-        }
-
-        idt
-    };
-}
-
-pub fn init_idt() {
-    IDT.load();
-}
-
-extern "x86-interrupt" fn breakpoint_handler(stack_frame: &mut ExceptionStackFrame) {
-    println!("EXCEPTION: BREAKPOINT\n{:#?}", stack_frame);
-}
-
-extern "x86-interrupt" fn double_fault_handler(
-    stack_frame: &mut ExceptionStackFrame,
-    _error_code: u64,
-) {
-    println!("EXCEPTION: DOUBLE FAULT\n{:#?}", stack_frame);
-    loop {}
+    blog_os::hlt_loop();
 }

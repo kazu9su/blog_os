@@ -1,6 +1,6 @@
 +++
 title = "Allocating Frames"
-order = 5
+weight = 5
 path = "allocating-frames"
 date  = 2015-11-15
 template = "first-edition/page.html"
@@ -10,9 +10,9 @@ In this post we create an allocator that provides free physical frames for a fut
 
 <!-- more -->
 
-The full source code is available on [Github][source repo]. Feel free to open issues there if you have any problems or improvements. You can also leave a comment at the bottom.
+The full source code is available on [GitHub][source repo]. Feel free to open issues there if you have any problems or improvements. You can also leave a comment at the bottom.
 
-[source repo]: https://github.com/phil-opp/blog_os/tree/post_5
+[source repo]: https://github.com/phil-opp/blog_os/tree/first_edition_post_5
 
 ## Preparation
 We still have a really tiny stack of 64 bytes, which won't suffice for this post. So we increase it to 16kB (four pages) in `boot.asm`:

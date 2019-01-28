@@ -1,6 +1,6 @@
 +++
 title = "VGA Text Mode"
-order = 3
+weight = 3
 path = "vga-text-mode"
 date  = 2018-02-26
 template = "second-edition/page.html"
@@ -13,10 +13,11 @@ The [VGA text mode] is a simple way to print text to the screen. In this post, w
 
 <!-- more -->
 
-This blog is openly developed on [Github]. If you have any problems or questions, please open an issue there. You can also leave comments [at the bottom].
+This blog is openly developed on [GitHub]. If you have any problems or questions, please open an issue there. You can also leave comments [at the bottom]. The complete source code for this post can be found [here][post branch].
 
-[Github]: https://github.com/phil-opp/blog_os
+[GitHub]: https://github.com/phil-opp/blog_os
 [at the bottom]: #comments
+[post branch]: https://github.com/phil-opp/blog_os/tree/post-03
 
 ## The VGA Text Buffer
 To print a character to the screen in VGA text mode, one has to write it to the text buffer of the VGA hardware. The VGA text buffer is a two-dimensional array with typically 25 rows and 80 columns, which is directly rendered to the screen. Each array entry describes a single screen character through the following format:
@@ -59,14 +60,14 @@ Now that we know how the VGA buffer works, we can create a Rust module to handle
 mod vga_buffer;
 ```
 
-The content of this module can live either in `src/vga_buffer.rs` or `src/vga_buffer/mod.rs`. The latter supports submodules while the former does not. Our module does not need any submodules so we create it as `src/vga_buffer.rs`.
-
-All of the code below goes into our new module (unless specified otherwise).
+For the content of this module we create a new `src/vga_buffer.rs` file. All of the code below goes into our new module (unless specified otherwise).
 
 ### Colors
 First, we represent the different colors using an enum:
 
 ```rust
+// in src/vga_buffer.rs
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -110,6 +111,8 @@ To represent a full color code that specifies foreground and background color, w
 [newtype]: https://rustbyexample.com/generics/new_types.html
 
 ```rust
+// in src/vga_buffer.rs
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ColorCode(u8);
 
@@ -125,6 +128,8 @@ The `ColorCode` contains the full color byte, containing foreground and backgrou
 Now we can add structures to represent a screen character and the text buffer:
 
 ```rust
+// in src/vga_buffer.rs
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 struct ScreenChar {
@@ -146,6 +151,8 @@ Since the field ordering in default structs is undefined in Rust, we need the [`
 To actually write to screen, we now create a writer type:
 
 ```rust
+// in src/vga_buffer.rs
+
 pub struct Writer {
     column_position: usize,
     color_code: ColorCode,
@@ -161,6 +168,8 @@ The writer will always write to the last line and shift lines up when a line is 
 Now we can use the `Writer` to modify the buffer's characters. First we create a method to write a single ASCII byte:
 
 ```rust
+// in src/vga_buffer.rs
+
 impl Writer {
     pub fn write_byte(&mut self, byte: u8) {
         match byte {
@@ -176,7 +185,7 @@ impl Writer {
                 let color_code = self.color_code;
                 self.buffer.chars[row][col] = ScreenChar {
                     ascii_character: byte,
-                    color_code: color_code,
+                    color_code,
                 };
                 self.column_position += 1;
             }
@@ -195,6 +204,8 @@ When printing a byte, the writer checks if the current line is full. In that cas
 To print whole strings, we can convert them to bytes and print them one-by-one:
 
 ```rust
+// in src/vga_buffer.rs
+
 impl Writer {
     pub fn write_string(&mut self, s: &str) {
         for byte in s.bytes() {
@@ -219,6 +230,8 @@ The VGA text buffer only supports ASCII and the additional bytes of [code page 4
 To write some characters to the screen, you can create a temporary function:
 
 ```rust
+// in src/vga_buffer.rs
+
 pub fn print_something() {
     let mut writer = Writer {
         column_position: 0,
@@ -251,7 +264,7 @@ The problem is that we only write to the `Buffer` and never read from it again. 
 
 [volatile]: https://en.wikipedia.org/wiki/Volatile_(computer_programming)
 
-In order to use volatile writes for the VGA buffer, we use the [volatile][volatile crate] library. This _crate_ (this is how packages are called in the Rust world) provides a `Volatile` wrapper type with `read` and `write` methods. These methods internally use the [read_volatile] and [write_volatile] functions of the standard library and thus guarantee that the reads/writes are not optimized away.
+In order to use volatile writes for the VGA buffer, we use the [volatile][volatile crate] library. This _crate_ (this is how packages are called in the Rust world) provides a `Volatile` wrapper type with `read` and `write` methods. These methods internally use the [read_volatile] and [write_volatile] functions of the core library and thus guarantee that the reads/writes are not optimized away.
 
 [volatile crate]: https://docs.rs/volatile
 [read_volatile]: https://doc.rust-lang.org/nightly/core/ptr/fn.read_volatile.html
@@ -271,14 +284,6 @@ The `0.2.3` is the [semantic] version number. For more information, see the [Spe
 [semantic]: http://semver.org/
 [Specifying Dependencies]: http://doc.crates.io/specifying-dependencies.html
 
-Now we've declared that our project depends on the `volatile` crate and are able to import it in `src/main.rs`:
-
-```rust
-// in src/main.rs
-
-extern crate volatile;
-```
-
 Let's use it to make writes to the VGA buffer volatile. We update our `Buffer` type as follows:
 
 ```rust
@@ -297,6 +302,8 @@ Instead of a `ScreenChar`, we're now using a `Volatile<ScreenChar>`. (The `Volat
 This means that we have to update our `Writer::write_byte` method:
 
 ```rust
+// in src/vga_buffer.rs
+
 impl Writer {
     pub fn write_byte(&mut self, byte: u8) {
         match byte {
@@ -324,6 +331,8 @@ It would be nice to support Rust's formatting macros, too. That way, we can easi
 [`core::fmt::Write`]: https://doc.rust-lang.org/nightly/core/fmt/trait.Write.html
 
 ```rust
+// in src/vga_buffer.rs
+
 use core::fmt;
 
 impl fmt::Write for Writer {
@@ -338,6 +347,8 @@ The `Ok(())` is just a `Ok` Result containing the `()` type.
 Now we can use Rust's built-in `write!`/`writeln!` formatting macros:
 
 ```rust
+// in src/vga_buffer.rs
+
 pub fn print_something() {
     use core::fmt::Write;
     let mut writer = Writer {
@@ -360,6 +371,8 @@ Now you should see a `Hello! The numbers are 42 and 0.3333333333333333` at the b
 Right now, we just ignore newlines and characters that don't fit into the line anymore. Instead we want to move every character one line up (the top line gets deleted) and start at the beginning of the last line again. To do this, we add an implementation for the `new_line` method of `Writer`:
 
 ```rust
+// in src/vga_buffer.rs
+
 impl Writer {
     fn new_line(&mut self) {
         for row in 1..BUFFER_HEIGHT {
@@ -380,6 +393,8 @@ We iterate over all screen characters and move each character one row up. Note t
 To finish the newline code, we add the `clear_row` method:
 
 ```rust
+// in src/vga_buffer.rs
+
 impl Writer {
     fn clear_row(&mut self, row: usize) {
         let blank = ScreenChar {
@@ -398,6 +413,8 @@ This method clears a row by overwriting all of its characters with a space chara
 To provide a global writer that can used as an interface from other modules without carrying a `Writer` instance around, we try to create a static `WRITER`:
 
 ```rust
+// in src/vga_buffer.rs
+
 pub static WRITER: Writer = Writer {
     column_position: 0,
     color_code: ColorCode::new(Color::Yellow, Color::Black),
@@ -435,7 +452,7 @@ error[E0017]: references in statics may only refer to immutable values
 
 To understand what's happening here, we need to know that statics are initialized at compile time, in contrast to normal variables that are initialized at run time. The component of the Rust compiler that evaluates such initialization expressions is called the “[const evaluator]”. Its functionality is still limited, but there is ongoing work to expand it, for example in the “[Allow panicking in constants]” RFC.
 
-[const evaluator]: https://rust-lang-nursery.github.io/rustc-guide/const-eval.html
+[const evaluator]: https://rust-lang.github.io/rustc-guide/const-eval.html
 [Allow panicking in constants]: https://github.com/rust-lang/rfcs/pull/2345
 
 The issue about `ColorCode::new` would be solvable by using [`const` functions], but the fundamental problem here is that Rust's const evaluator is not able to convert raw pointers to references at compile time. Maybe it will work someday, but until then, we have to find another solution.
@@ -449,13 +466,6 @@ The one-time initialization of statics with non-const functions is a common prob
 
 Let's add the `lazy_static` crate to our project:
 
-```rust
-// in src/main.rs
-
-#[macro_use]
-extern crate lazy_static;
-```
-
 ```toml
 # in Cargo.toml
 
@@ -464,11 +474,15 @@ version = "1.0"
 features = ["spin_no_std"]
 ```
 
-We need the `spin_no_std` feature, since we don't link the standard library. We also need the `#[macro_use]` attribute on the `extern crate` line to import the `lazy_static!` macro.
+We need the `spin_no_std` feature, since we don't link the standard library.
 
 With `lazy_static`, we can define our static `WRITER` without problems:
 
 ```rust
+// in src/vga_buffer.rs
+
+use lazy_static::lazy_static;
+
 lazy_static! {
     pub static ref WRITER: Writer = Writer {
         column_position: 0,
@@ -500,18 +514,14 @@ To use a spinning mutex, we can add the [spin crate] as a dependency:
 ```toml
 # in Cargo.toml
 [dependencies]
-spin = "0.4.6"
-```
-
-```rust
-// in src/main.rs
-extern crate spin;
+spin = "0.4.9"
 ```
 
 Then we can use the spinning Mutex to add safe [interior mutability] to our static `WRITER`:
 
 ```rust
-// in src/vga_buffer.rs again
+// in src/vga_buffer.rs
+
 use spin::Mutex;
 ...
 lazy_static! {
@@ -547,25 +557,29 @@ Now that we have a global writer, we can add a `println` macro that can be used 
 [`println!` macro]: https://doc.rust-lang.org/nightly/std/macro.println!.html
 
 ```rust
+#[macro_export]
 macro_rules! println {
     () => (print!("\n"));
-    ($fmt:expr) => (print!(concat!($fmt, "\n")));
-    ($fmt:expr, $($arg:tt)*) => (print!(concat!($fmt, "\n"), $($arg)*));
+    ($($arg:tt)*) => (print!("{}\n", format_args!($($arg)*)));
 }
 ```
-Macros are defined through one or more rules, which are similar to `match` arms. The `println` macro has three rules: The first rule for is invocations without arguments (e.g `println!()`), the second rule is for invocations with a single argument (e.g. `println!("Hello")`) and the third rule is for invocations with additional parameters (e.g. `println!("{}{}", 4, 2)`).
 
-First line just prints a `\n` symbol which literally means "don't print anything, just break the line".
-Last two rules simply append a newline character (`\n`) to the format string and then invoke the [`print!` macro], which is defined as:
+Macros are defined through one or more rules, which are similar to `match` arms. The `println` macro has two rules: The first rule for is invocations without arguments (e.g `println!()`), which is expanded to `print!("\n")` and thus just prints a newline. the second rule is for invocations with parameters such as `println!("Hello")` or `println!("Number: {}", 4)`. It is also expanded to an invocation of the `print!` macro, passing all arguments and an additional newline `\n` at the end.
+
+The `#[macro_export]` attribute makes the available to the whole crate (not just the module it is defined) and external crates. It also places the macro at the crate root, which means that we have to import the macro through `use std::println` instead of `std::macros::println`.
+
+The [`print!` macro] is defined as:
 
 [`print!` macro]: https://doc.rust-lang.org/nightly/std/macro.print!.html
 
 ```rust
+#[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => ($crate::io::_print(format_args!($($arg)*)));
 }
 ```
-The macro expands to a call of the [`_print` function] in the `io` module. The [`$crate` variable] ensures that the macro also works from outside the `std` crate. For example, it expands to `::std` when it's used in other crates.
+
+The macro expands to a call of the [`_print` function] in the `io` module. The [`$crate` variable] ensures that the macro also works from outside the `std` crate by expanding to `std` when it's used in other crates.
 
 The [`format_args` macro] builds a [fmt::Arguments] type from the passed arguments, which is passed to `_print`. The [`_print` function] of libstd calls `print_to`, which is rather complicated because it supports different `Stdout` devices. We don't need that complexity since we just want to print to the VGA buffer.
 
@@ -574,36 +588,44 @@ The [`format_args` macro] builds a [fmt::Arguments] type from the passed argumen
 [`format_args` macro]: https://doc.rust-lang.org/nightly/std/macro.format_args.html
 [fmt::Arguments]: https://doc.rust-lang.org/nightly/core/fmt/struct.Arguments.html
 
-To print to the VGA buffer, we just copy the `println!` and `print!` macros, but modify them to use a `print` function:
+To print to the VGA buffer, we just copy the `println!` and `print!` macros, but modify them to use our own `_print` function:
 
 ```rust
 // in src/vga_buffer.rs
 
+#[macro_export]
 macro_rules! print {
-    ($($arg:tt)*) => ($crate::vga_buffer::print(format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::vga_buffer::_print(format_args!($($arg)*)));
 }
 
+#[macro_export]
 macro_rules! println {
-    () => (print!("\n"));
-    ($fmt:expr) => (print!(concat!($fmt, "\n")));
-    ($fmt:expr, $($arg:tt)*) => (print!(concat!($fmt, "\n"), $($arg)*));
+    () => ($crate::print!("\n"));
+    ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
 }
 
-pub fn print(args: fmt::Arguments) {
+#[doc(hidden)]
+pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write;
     WRITER.lock().write_fmt(args).unwrap();
 }
 ```
-The `print` function locks our static `WRITER` and calls the `write_fmt` method on it. This method is from the `Write` trait, we need to import that trait. The additional `unwrap()` at the end panics if printing isn't successful. But since we always return `Ok` in `write_str`, that should not happen.
+
+One thing that we changed from the original `println` definition is that we prefixed the invocations of the `print!` macro with `$crate` too. This ensures that we don't need to have to import the `print!` macro too if we only want to use `println`.
+
+Like in the standard library, we add the `#[macro_export]` attribute to both macros to make them available everywhere in our crate. Note that this places the macros in the root namespace of the crate, so importing them via `use crate::vga_buffer::println` does not work. Instead, we have to do `use crate::println`.
+
+The `_print` function locks our static `WRITER` and calls the `write_fmt` method on it. This method is from the `Write` trait, we need to import that trait. The additional `unwrap()` at the end panics if printing isn't successful. But since we always return `Ok` in `write_str`, that should not happen.
+
+Since the macros need to be able to call `_print` from outside of the module, the function needs to be public. However, since we consider this a private implementation detail, we add the [`doc(hidden)` attribute] to hide it from the generated documentation.
+
+[`doc(hidden)` attribute]: https://doc.rust-lang.org/nightly/rustdoc/the-doc-attribute.html#dochidden
 
 ### Hello World using `println`
-To use `println` in `main.rs`, we need to import the macros of the VGA buffer module first. Therefore we add a `#[macro_use]` attribute to the module declaration:
+Now we can use `println` in our `_start` function:
 
 ```rust
 // in src/main.rs
-
-#[macro_use]
-mod vga_buffer;
 
 #[no_mangle]
 pub extern "C" fn _start() {
@@ -613,7 +635,7 @@ pub extern "C" fn _start() {
 }
 ```
 
-Since we imported the macros at crate level, they are available in all modules and thus provide an easy and safe interface to the VGA buffer.
+Note that we don't have to import the macro in the main function, because it already lives in the root namespace.
 
 As expected, we now see a _“Hello World!”_ on the screen:
 
@@ -627,9 +649,8 @@ Now that we have a `println` macro, we can use it in our panic function to print
 // in main.rs
 
 /// This function is called on panic.
-#[panic_implementation]
-#[no_mangle]
-pub fn panic(info: &PanicInfo) -> ! {
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
     println!("{}", info);
     loop {}
 }

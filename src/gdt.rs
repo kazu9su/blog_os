@@ -1,3 +1,4 @@
+use lazy_static::lazy_static;
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector};
 use x86_64::structures::tss::TaskStateSegment;
 use x86_64::VirtAddr;
@@ -17,6 +18,9 @@ lazy_static! {
         };
         tss
     };
+}
+
+lazy_static! {
     static ref GDT: (GlobalDescriptorTable, Selectors) = {
         let mut gdt = GlobalDescriptorTable::new();
         let code_selector = gdt.add_entry(Descriptor::kernel_code_segment());

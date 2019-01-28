@@ -1,6 +1,6 @@
 +++
 title = "Unit Testing"
-order = 4
+weight = 4
 path = "unit-testing"
 date  = 2018-04-29
 template = "second-edition/page.html"
@@ -10,10 +10,11 @@ This post explores unit testing in `no_std` executables using Rust's built-in te
 
 <!-- more -->
 
-This blog is openly developed on [Github]. If you have any problems or questions, please open an issue there. You can also leave comments [at the bottom].
+This blog is openly developed on [GitHub]. If you have any problems or questions, please open an issue there. You can also leave comments [at the bottom]. The complete source code for this post can be found [here][post branch].
 
-[Github]: https://github.com/phil-opp/blog_os
+[GitHub]: https://github.com/phil-opp/blog_os
 [at the bottom]: #comments
+[post branch]: https://github.com/phil-opp/blog_os/tree/post-04
 
 ## Unit Tests for `no_std` Binaries
 Rust has a [built-in test framework] that is capable of running unit tests without the need to set anything up. Just create a function that checks some results through assertions and add the `#[test]` attribute to the function header. Then `cargo test` will automatically find and execute all test functions of your crate.
@@ -28,7 +29,7 @@ Unfortunately it's a bit more complicated for `no_std` applications such as our 
 error[E0152]: duplicate lang item found: `panic_impl`.
   --> src/main.rs:35:1
    |
-35 | / pub fn panic(info: &PanicInfo) -> ! {
+35 | / fn panic(info: &PanicInfo) -> ! {
 36 | |     println!("{}", info);
 37 | |     loop {}
 38 | | }
@@ -37,7 +38,7 @@ error[E0152]: duplicate lang item found: `panic_impl`.
    = note: first defined in crate `std`.
 ```
 
-The problem is that unit tests are built for the host machine, with the `std` library included. This makes sense because they should be able to run as a normal application on the host operating system. Since the standard library has it's own `panic_implementation` function, we get the above error. To fix it, we use [conditional compilation] to include our implementation of the panic handler only in non-test environments:
+The problem is that unit tests are built for the host machine, with the `std` library included. This makes sense because they should be able to run as a normal application on the host operating system. Since the standard library has it's own `panic_handler` function, we get the above error. To fix it, we use [conditional compilation] to include our implementation of the panic handler only in non-test environments:
 
 [conditional compilation]: https://doc.rust-lang.org/reference/attributes.html#conditional-compilation
 
@@ -48,9 +49,8 @@ The problem is that unit tests are built for the host machine, with the `std` li
 use core::panic::PanicInfo;
 
 #[cfg(not(test))] // only compile when the test flag is not set
-#[panic_implementation]
-#[no_mangle]
-pub fn panic(info: &PanicInfo) -> ! {
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
     println!("{}", info);
     loop {}
 }
@@ -112,13 +112,13 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 The test framework seems to work as intended. We don't have any tests yet, but we already get a test result summary.
 
 ### Silencing the Warnings
-We get a few warnings about unused items, because we no longer compile our `_start` function. To silence such unused code warnings, we can add the following to the top of our `main.rs`:
+We get a few warnings about unused imports, because we no longer compile our `_start` function. To silence such unused code warnings, we can add the following to the top of our `main.rs`:
 
 ```
-#![cfg_attr(test, allow(dead_code, unused_macros, unused_imports))]
+#![cfg_attr(test, allow(unused_imports))]
 ```
 
-Like before, the `cfg_attr` attribute sets the passed attribute if the passed condition holds. Here, we set the `allow(…)` attribute when compiling in test mode. We use the `allow` attribute to disable warnings for the `dead_code`, `unused_macro`, and `unused_import` _lints_.
+Like before, the `cfg_attr` attribute sets the passed attribute if the passed condition holds. Here, we set the `allow(…)` attribute when compiling in test mode. We use the `allow` attribute to disable warnings for the `unused_import` _lint_.
 
 Lints are classes of warnings, for example `dead_code` for unused code or `missing-docs` for missing documentation. Lints can be set to four different states:
 
@@ -132,14 +132,12 @@ Some lints are `allow` by default (such as `missing-docs`), others are `warn` by
 [clippy]: https://github.com/rust-lang-nursery/rust-clippy
 
 ### Including the Standard Library
-Unit tests run on the host machine, so it's possible to use the complete standard library inside them. To link the standard library in test mode, we can add the following to our `main.rs`:
+Unit tests run on the host machine, so it's possible to use the complete standard library inside them. To link the standard library in test mode, we can make the `#![no_std]` attribute conditional through `cfg_attr` too:
 
-```rust
-#[cfg(test)]
-extern crate std;
+```diff
+-#![no_std]
++#![cfg_attr(not(test), no_std)]
 ```
-
-Rust knows where to find the `std` crate, so no modification to the `Cargo.toml` is required.
 
 ## Testing the VGA Module
 Now that we have set up the test framework, we can add a first unit test for our `vga_buffer` module:
@@ -247,17 +245,9 @@ To use that crate, we add the following to our `Cargo.toml`:
 array-init = "0.0.3"
 ```
 
-Note that we're using the [`dev-dependencies`] table instead of the `dependencies` table, because we only need the crate for `cargo test` and not for a normal build. Consequently, we also add a `#[cfg(test)]` attribute to the `extern crate` declaration in `main.rs`:
+Note that we're using the [`dev-dependencies`] table instead of the `dependencies` table, because we only need the crate for `cargo test` and not for a normal build.
 
 [`dev-dependencies`]: https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#development-dependencies
-
-
-```rust
-// in main.rs
-
-#[cfg(test)]
-extern crate array_init;
-```
 
 Now we can fix our `construct_buffer` function:
 

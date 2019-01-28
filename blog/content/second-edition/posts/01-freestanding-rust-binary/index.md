@@ -1,6 +1,6 @@
 +++
 title = "A Freestanding Rust Binary"
-order = 1
+weight = 1
 path = "freestanding-rust-binary"
 date = 2018-02-10
 template = "second-edition/page.html"
@@ -12,6 +12,12 @@ The first step in creating our own operating system kernel is to create a Rust e
 
 <!-- more -->
 
+This blog is openly developed on [GitHub]. If you have any problems or questions, please open an issue there. You can also leave comments [at the bottom]. The complete source code for this post can be found [here][post branch].
+
+[GitHub]: https://github.com/phil-opp/blog_os
+[at the bottom]: #comments
+[post branch]: https://github.com/phil-opp/blog_os/tree/post-01
+
 ## Introduction
 To write an operating system kernel, we need code that does not depend on any operating system features. This means that we can't use threads, files, heap memory, the network, random numbers, standard output, or any other features requiring OS abstractions or specific hardware. Which makes sense, since we're trying to write our own OS and our own drivers.
 
@@ -20,11 +26,11 @@ This means that we can't use most of the [Rust standard library], but there are 
 [option]: https://doc.rust-lang.org/core/option/
 [result]:https://doc.rust-lang.org/core/result/
 [Rust standard library]: https://doc.rust-lang.org/std/
-[iterators]: https://doc.rust-lang.org/book/second-edition/ch13-02-iterators.html
-[closures]: https://doc.rust-lang.org/book/second-edition/ch13-01-closures.html
-[pattern matching]: https://doc.rust-lang.org/book/second-edition/ch06-00-enums.html
+[iterators]: https://doc.rust-lang.org/book/ch13-02-iterators.html
+[closures]: https://doc.rust-lang.org/book/ch13-01-closures.html
+[pattern matching]: https://doc.rust-lang.org/book/ch06-00-enums.html
 [string formatting]: https://doc.rust-lang.org/core/macro.write.html
-[ownership system]: https://doc.rust-lang.org/book/second-edition/ch04-00-understanding-ownership.html
+[ownership system]: https://doc.rust-lang.org/book/ch04-00-understanding-ownership.html
 [undefined behavior]: https://www.nayuki.io/page/undefined-behavior-in-c-and-cplusplus-programs
 [memory safety]: https://tonyarcieri.com/it-s-time-for-a-memory-safety-intervention
 
@@ -32,19 +38,32 @@ In order to create an OS kernel in Rust, we need to create an executable that ca
 
 This post describes the necessary steps to create a freestanding Rust binary and explains why the steps are needed. If you're just interested in a minimal example, you can **[jump to the summary](#summary)**.
 
+## Installing Rust Nightly
+Rust has three release channels: _stable_, _beta_, and _nightly_. The Rust Book explains the difference between these channels really well, so take a minute and [check it out](https://doc.rust-lang.org/book/appendix-07-nightly-rust.html#choo-choo-release-channels-and-riding-the-trains). For building an operating system we will need some experimental features that are only available on the nightly channel, so we need to install a nightly version of Rust.
+
+To manage Rust installations I highly recommend [rustup]. It allows you to install nightly, beta, and stable compilers side-by-side and makes it easy to update them. With rustup you can use a nightly compiler for the current directory by running `rustup override add nightly`. Alternatively, you can add a file called `rust-toolchain` with the content `nightly` to the project's root directory. You can check that you have a nightly version installed by running `rustc --version`: The version number should contain `-nightly` at the end.
+
+[rustup]: https://www.rustup.rs/
+
+The nightly compiler allows us to opt-in to various experimental features by using so-called _feature flags_ at the top of our file. For example, we could enable the experimental [`asm!` macro] for inline assembly by adding `#![feature(asm)]` to the top of our `main.rs`. Note that such experimental features are completely unstable, which means that future Rust versions might change or remove them without prior warning. For this reason we will only use them if absolutely necessary.
+
+[`asm!` macro]: https://doc.rust-lang.org/nightly/unstable-book/language-features/asm.html
+
 ## Disabling the Standard Library
 By default, all Rust crates link the [standard library], which depends on the operating system for features such as threads, files, or networking. It also depends on the C standard library `libc`, which closely interacts with OS services. Since our plan is to write an operating system, we can not use any OS-dependent libraries. So we have to disable the automatic inclusion of the standard library through the [`no_std` attribute].
 
 [standard library]: https://doc.rust-lang.org/std/
-[`no_std` attribute]: https://doc.rust-lang.org/book/first-edition/using-rust-without-the-standard-library.html
+[`no_std` attribute]: https://doc.rust-lang.org/1.30.0/book/first-edition/using-rust-without-the-standard-library.html
 
 We start by creating a new cargo application project. The easiest way to do this is through the command line:
 
 ```
-> cargo new blog_os --bin
+> cargo new blog_os --bin --edition 2018
 ```
 
-I named the project `blog_os`, but of course you can choose your own name. The `--bin` flag specifies that we want to create an executable binary (in contrast to a library). When we run the command, cargo creates the following directory structure for us:
+I named the project `blog_os`, but of course you can choose your own name. The `--bin` flag specifies that we want to create an executable binary (in contrast to a library) and the `--edition 2018` flag specifies that we want to use the [2018 edition] of Rust for our crate. When we run the command, cargo creates the following directory structure for us:
+
+[2018 edition]: https://rust-lang-nursery.github.io/edition-guide/rust-2018/index.html
 
 ```
 blog_os
@@ -98,25 +117,50 @@ fn main() {}
 
 ```
 > cargo build
-error: language item required, but not found: `panic_impl`
+error: `#[panic_handler]` function required, but not found
 error: language item required, but not found: `eh_personality`
 ```
 
-Now the compiler is missing some _language items_. Language items are special pluggable functions that the compiler invokes on certain conditions, for example when the application [panics][panic]. Normally, these items are provided by the standard library, but we disabled it.
+Now the compiler is missing a `#[panic_handler]` function and a _language item_.
 
-[panic]: https://doc.rust-lang.org/stable/book/second-edition/ch09-01-unrecoverable-errors-with-panic.html
+### Panic Implementation
 
-Providing our own implementation of the language items would be possible, but this should only be done as a last resort. The reason is that language items are highly unstable implementation details and not even type checked (so the compiler doesn't even check if it has the right argument types).
+The `panic_handler` attribute defines the function that the compiler should invoke when a [panic] occurs. The standard library provides its own panic handler function, but in a `no_std` environment we need to define it ourselves:
 
-Fortunately, there are more stable ways to fix these language item errors.
+```rust
+// in main.rs
 
-### Disabling Unwinding
+use core::panic::PanicInfo;
 
-The `eh_personality` language item is used for implementing [stack unwinding]. By default, Rust uses unwinding to run the destructors of all live stack variables in case of a [panic]. This ensures that all used memory is freed and allows the parent thread to catch the panic and continue execution. Unwinding, however, is a complicated process and requires some OS specific libraries (e.g. [libunwind] on Linux or [structured exception handling] on Windows), so we don't want to use it for our operating system.
+/// This function is called on panic.
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    loop {}
+}
+```
+
+The [`PanicInfo` parameter][PanicInfo] contains the file and line where the panic happened and the optional panic message. The function should never return, so it is marked as a [diverging function] by returning the [“never” type] `!`. There is not much we can do in this function for now, so we just loop indefinitely.
+
+[PanicInfo]: https://doc.rust-lang.org/nightly/core/panic/struct.PanicInfo.html
+[diverging function]: https://doc.rust-lang.org/1.30.0/book/first-edition/functions.html#diverging-functions
+[“never” type]: https://doc.rust-lang.org/nightly/std/primitive.never.html
+
+### The `eh_personality` Language Item
+
+Language items are special functions and types that are required internally by the compiler. For example, the [`Copy`] trait is a language item that tells the compiler which types have [_copy semantics_][`Copy`]. When we look at the [implementation][copy code], we see has the special `#[lang = "copy"]` attribute that defines it as a language item.
+
+[`Copy`]: https://doc.rust-lang.org/nightly/core/marker/trait.Copy.html
+[copy code]: https://github.com/rust-lang/rust/blob/485397e49a02a3b7ff77c17e4a3f16c653925cb3/src/libcore/marker.rs#L296-L299
+
+Providing own implementations of language items would be possible, but this should only be done as a last resort. The reason is that language items are highly unstable implementation details and not even type checked (so the compiler doesn't even check if a function has the right argument types). Fortunately, there is a more stable ways to fix the above language item error.
+
+The `eh_personality` language item marks a function that is used for implementing [stack unwinding]. By default, Rust uses unwinding to run the destructors of all live stack variables in case of a [panic]. This ensures that all used memory is freed and allows the parent thread to catch the panic and continue execution. Unwinding, however, is a complicated process and requires some OS specific libraries (e.g. [libunwind] on Linux or [structured exception handling] on Windows), so we don't want to use it for our operating system.
 
 [stack unwinding]: http://www.bogotobogo.com/cplusplus/stackunwinding.php
 [libunwind]: http://www.nongnu.org/libunwind/
 [structured exception handling]: https://msdn.microsoft.com/en-us/library/windows/desktop/ms680657(v=vs.85).aspx
+
+#### Disabling Unwinding
 
 There are other use cases as well for which unwinding is undesirable, so Rust provides an option to [abort on panic] instead. This disables the generation of unwinding symbol information and thus considerably reduces binary size. There are multiple places where we can disable unwinding. The easiest way is to add the following lines to our `Cargo.toml`:
 
@@ -132,48 +176,7 @@ This sets the panic strategy to `abort` for both the `dev` profile (used for `ca
 
 [abort on panic]: https://github.com/rust-lang/rust/pull/32900
 
-### Panic Implementation
-
-The `panic_impl` language item defines the function that the compiler should invoke when a [panic] occurs. Instead of providing the language item directly, we can use the [`panic_implementation`] attribute to create a `panic` function:
-
-[`panic_implementation`]: https://github.com/rust-lang/rfcs/blob/master/text/2070-panic-implementation.md#panic_implementation
-
-```rust
-// in main.rs
-
-use core::panic::PanicInfo;
-
-/// This function is called on panic.
-#[panic_implementation]
-#[no_mangle]
-pub fn panic(_info: &PanicInfo) -> ! {
-    loop {}
-}
-```
-
-The [`PanicInfo` parameter][PanicInfo] contains the file and line where the panic happened and the optional panic message. The function should never return, so it is marked as a [diverging function] by returning the [“never” type] `!`. There is not much we can do in this function for now, so we just loop indefinitely.
-
-[PanicInfo]: https://doc.rust-lang.org/nightly/core/panic/struct.PanicInfo.html
-[diverging function]: https://doc.rust-lang.org/book/first-edition/functions.html#diverging-functions
-[“never” type]: https://doc.rust-lang.org/nightly/std/primitive.never.html
-
-When we try `cargo build` now, we get an error that “#[panic_implementation] is an unstable feature”.
-
-#### Enabling Unstable Features
-
-The `panic_implementation` attribute was recently added and is thus still unstable and protected by a so-called _feature gate_. A feature gate is a special attribute that you have to specify at the top of your `main.rs` in order to use the corresponding feature. By doing this you basically say: “I know that this feature is unstable and that it might stop working without any warnings. I want to use it anyway.”
-
-Feature gates are not available in the stable or beta Rust compilers, only [nightly Rust] makes it possible to opt-in. This means that you have to use a nightly compiler for OS development for the near future (until all unstable features that we need are added are stabilized).
-
-[nightly Rust]: https://doc.rust-lang.org/book/first-edition/release-channels.html
-
-To manage Rust installations I highly recommend [rustup]. It allows you to install nightly, beta, and stable compilers side-by-side and makes it easy to update them. To use a nightly compiler for the current directory, you can run `rustup override add nightly`. Alternatively, you can add a file called `rust-toolchain` with the content `nightly` to the project's root directory.
-
-[rustup]: https://www.rustup.rs/
-
-After installing a nightly Rust compiler, you can enable the unstable `panic_implementation` feature by inserting `#![feature(panic_implementation)]` right at the top of `main.rs`.
-
-Now we fixed both language item errors. However, if we try to compile it now, another language item is required:
+Now we fixed both of the above errors. However, if we try to compile it now, another language item is required:
 
 ```
 > cargo build
@@ -196,16 +199,14 @@ Our freestanding executable does not have access to the Rust runtime and `crt0`,
 To tell the Rust compiler that we don't want to use the normal entry point chain, we add the `#![no_main]` attribute.
 
 ```rust
-#![feature(panic_implementation)]
 #![no_std]
 #![no_main]
 
 use core::panic::PanicInfo;
 
 /// This function is called on panic.
-#[panic_implementation]
-#[no_mangle]
-pub fn panic(_info: &PanicInfo) -> ! {
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }
 ```
@@ -215,7 +216,7 @@ You might notice that we removed the `main` function. The reason is that a `main
 The entry point convention depends on your operating system. I recommend you to read the Linux section even if you're on a different OS because we will use this convention for our kernel.
 
 #### Linux
-On Linux, the default entry point is called `_start`. The linker just looks for a function with that name and sets this function as entry point the executable. So to overwrite the entry point, we define our own `_start` function:
+On Linux, the default entry point is called `_start`. The linker just looks for a function with that name and sets this function as entry point to the executable. So, to overwrite the entry point, we define our own `_start` function:
 
 ```rust
 #[no_mangle]
@@ -260,13 +261,13 @@ error: linking with `cc` failed: exit code: 1
 
 The problem is that we still link the startup routine of the C runtime, which requires some symbols of the C standard library `libc`, which we don't link due to the `no_std` attribute. So we need to get rid of the C startup routine. We can do that by passing the `-nostartfiles` flag to the linker.
 
-One way to pass linker attributes via cargo is the `cargo rustc` command. The command behaves exactly like `cargo build`, but allows to pass options to `rustc`, the underlying Rust compiler. `rustc` has the (unstable) `-Z pre-link-arg` flag, which passes an argument to the linker. Combined, our new build command looks like this:
+One way to pass linker attributes via cargo is the `cargo rustc` command. The command behaves exactly like `cargo build`, but allows to pass options to `rustc`, the underlying Rust compiler. `rustc` has the `-Z pre-link-arg` flag, which passes an argument to the linker. Combined, our new build command looks like this:
 
 ```
 > cargo rustc -- -Z pre-link-arg=-nostartfiles
 ```
 
-With this command, our crate finally builds as a freestanding executable!
+Note that all `-Z` flags are unstable, so the command only works with nightly Rust. Now our crate finally builds as a freestanding executable!
 
 #### Windows
 On Windows, the linker requires two entry points [depending on the used subsystem]. For the `CONSOLE` subsystem, we need a function called `mainCRTStartup`, which calls a function called `main`. Like on Linux, we overwrite the entry points by defining `no_mangle` functions:
@@ -311,28 +312,32 @@ A minimal freestanding Rust binary looks like this:
 `src/main.rs`:
 
 ```rust
-#![feature(panic_implementation)] // required for defining the panic handler
 #![no_std] // don't link the Rust standard library
 #![no_main] // disable all Rust-level entry points
 
 use core::panic::PanicInfo;
 
 /// This function is called on panic.
-#[panic_implementation]
-#[no_mangle]
-pub fn panic(_info: &PanicInfo) -> ! {
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }
+```
 
-// On Linux:
+The entry point definition depends on the target operating system. For Linux it looks like this:
+
+```rust
 #[no_mangle] // don't mangle the name of this function
 pub extern "C" fn _start() -> ! {
     // this function is the entry point, since the linker looks for a function
     // named `_start` by default
     loop {}
 }
+```
 
-// On Windows:
+For Windows like this:
+
+```rust
 #[no_mangle]
 pub extern "C" fn mainCRTStartup() -> ! {
     main();
@@ -342,16 +347,18 @@ pub extern "C" fn mainCRTStartup() -> ! {
 pub extern "C" fn main() -> ! {
     loop {}
 }
+```
 
-// On macOS:
+And for macOS like this:
 
+```rust
 #[no_mangle]
 pub extern "C" fn main() -> ! {
     loop {}
 }
 ```
 
-`Cargo.toml`:
+The `Cargo.toml` is independent of the operating system and looks like this:
 
 ```toml
 [package]
@@ -368,7 +375,7 @@ panic = "abort" # disable stack unwinding on panic
 panic = "abort" # disable stack unwinding on panic
 ```
 
-It can be compiled with:
+The binary can be compiled with:
 
 ```bash
 # Linux
